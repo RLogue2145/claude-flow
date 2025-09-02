@@ -1,0 +1,80 @@
+{
+  "name": "claude-flow-cursor",
+  "displayName": "Claude Flow",
+  "description": "Integrates Claude Flow CLI and tools into Cursor/VS Code.",
+  "version": "0.0.1",
+  "publisher": "ruv",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:claudeFlow.hello",
+    "onCommand:claudeFlow.runCLI",
+    "onCommand:claudeFlow.showWebview",
+    "onCommand:claudeFlow.runLocalScript"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeFlow.hello",
+        "title": "Claude Flow: Hello"
+      },
+      {
+        "command": "claudeFlow.runCLI",
+        "title": "Claude Flow: Run CLI"
+      },
+      {
+        "command": "claudeFlow.showWebview",
+        "title": "Claude Flow: Show Webview"
+      },
+      {
+        "command": "claudeFlow.runLocalScript",
+        "title": "Claude Flow: Run Local Script"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Claude Flow",
+      "properties": {
+        "claudeFlow.cliPath": {
+          "type": "string",
+          "default": "/workspace/bin/claude-flow",
+          "description": "Path to Claude Flow CLI executable."
+        },
+        "claudeFlow.defaultArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["--help"],
+          "description": "Default arguments passed to the CLI command."
+        },
+        "claudeFlow.env": {
+          "type": "object",
+          "default": {},
+          "description": "Environment variables to pass to the CLI."
+        },
+        "claudeFlow.localScript": {
+          "type": "string",
+          "default": "/workspace/bin/claude-flow-swarm",
+          "description": "Path to a local script/binary to run via command."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3",
+    "vsce": "^2.15.0"
+  }
+}
+
