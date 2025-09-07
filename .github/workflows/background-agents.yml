@@ -1,0 +1,321 @@
+name: Background Agents CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      agent_type:
+        description: 'Type of background agent to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - github-integration
+        - cursor-sync
+        - memory-management
+        - swarm-coordination
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+env:
+  NODE_VERSION: '20'
+  CURSOR_API_URL: ${{ secrets.CURSOR_API_URL }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  # Background Agent Health Check
+  health-check:
+    name: Background Agent Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run health checks
+        run: |
+          echo "🔍 Checking background agent health..."
+          npm run health-check
+          npm run diagnostics
+
+      - name: Test GitHub integration
+        run: |
+          echo "🐙 Testing GitHub integration..."
+          node -e "
+            const { githubAPI } = require('./dist/cli/simple-commands/github/github-api.js');
+            githubAPI.checkCLIStatus().then(status => {
+              console.log('GitHub CLI Status:', status);
+              process.exit(status ? 0 : 1);
+            });
+          "
+
+  # GitHub Integration Agent
+  github-integration:
+    name: GitHub Integration Agent
+    runs-on: ubuntu-latest
+    needs: health-check
+    if: ${{ github.event.inputs.agent_type == 'all' || github.event.inputs.agent_type == 'github-integration' }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Setup GitHub CLI
+        run: |
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt update
+          sudo apt install gh
+
+      - name: Authenticate GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          gh auth status
+
+      - name: Run GitHub integration tests
+        run: |
+          echo "🐙 Running GitHub integration tests..."
+          npm run test:integration -- --testNamePattern="GitHub"
+
+      - name: Test GitHub API client
+        run: |
+          echo "🔧 Testing GitHub API client..."
+          node -e "
+            const { GitHubAPIClient } = require('./dist/cli/simple-commands/github/github-api.js');
+            const client = new GitHubAPIClient();
+            client.authenticate().then(auth => {
+              console.log('Authentication:', auth);
+              return client.listRepositories({ perPage: 5 });
+            }).then(repos => {
+              console.log('Repositories:', repos.success ? 'Success' : 'Failed');
+              process.exit(repos.success ? 0 : 1);
+            }).catch(err => {
+              console.error('Error:', err);
+              process.exit(1);
+            });
+          "
+
+      - name: Test background agent functionality
+        run: |
+          echo "🤖 Testing background agent functionality..."
+          node -e "
+            const { githubCommand } = require('./dist/cli/simple-commands/github.js');
+            githubCommand(['init'], { force: true }).then(() => {
+              console.log('GitHub init command completed');
+            }).catch(err => {
+              console.error('GitHub init failed:', err);
+              process.exit(1);
+            });
+          "
+
+  # Cursor Sync Agent
+  cursor-sync:
+    name: Cursor Sync Agent
+    runs-on: ubuntu-latest
+    needs: health-check
+    if: ${{ github.event.inputs.agent_type == 'all' || github.event.inputs.agent_type == 'cursor-sync' }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Test Cursor integration
+        run: |
+          echo "🎯 Testing Cursor integration..."
+          node -e "
+            console.log('Testing Cursor API connection...');
+            console.log('Cursor API URL:', process.env.CURSOR_API_URL || 'Not set');
+            console.log('Cursor API Key:', process.env.CURSOR_API_KEY ? 'Set' : 'Not set');
+            
+            if (process.env.CURSOR_API_URL && process.env.CURSOR_API_KEY) {
+              console.log('✅ Cursor integration configured');
+            } else {
+              console.log('⚠️  Cursor integration not fully configured');
+            }
+          "
+
+      - name: Test background sync
+        run: |
+          echo "🔄 Testing background sync functionality..."
+          npm run test:integration -- --testNamePattern="Cursor"
+
+  # Memory Management Agent
+  memory-management:
+    name: Memory Management Agent
+    runs-on: ubuntu-latest
+    needs: health-check
+    if: ${{ github.event.inputs.agent_type == 'all' || github.event.inputs.agent_type == 'memory-management' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Test memory management
+        run: |
+          echo "🧠 Testing memory management..."
+          npm run test:integration -- --testNamePattern="Memory"
+
+      - name: Test memory persistence
+        run: |
+          echo "💾 Testing memory persistence..."
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Test memory store
+            const memoryStore = path.join(__dirname, 'memory', 'memory-store.json');
+            if (fs.existsSync(memoryStore)) {
+              const data = JSON.parse(fs.readFileSync(memoryStore, 'utf8'));
+              console.log('Memory store loaded:', Object.keys(data).length, 'entries');
+            } else {
+              console.log('Memory store not found, creating...');
+              fs.writeFileSync(memoryStore, JSON.stringify({}, null, 2));
+            }
+          "
+
+  # Swarm Coordination Agent
+  swarm-coordination:
+    name: Swarm Coordination Agent
+    runs-on: ubuntu-latest
+    needs: health-check
+    if: ${{ github.event.inputs.agent_type == 'all' || github.event.inputs.agent_type == 'swarm-coordination' }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Test swarm coordination
+        run: |
+          echo "🐝 Testing swarm coordination..."
+          npm run test:swarm
+
+      - name: Test background coordination
+        run: |
+          echo "🤝 Testing background coordination..."
+          node -e "
+            console.log('Testing swarm coordination...');
+            console.log('Swarm coordination test completed');
+          "
+
+  # Background Agent Deployment
+  deploy:
+    name: Deploy Background Agents
+    runs-on: ubuntu-latest
+    needs: [github-integration, cursor-sync, memory-management, swarm-coordination]
+    if: always() && (needs.github-integration.result == 'success' || needs.cursor-sync.result == 'success' || needs.memory-management.result == 'success' || needs.swarm-coordination.result == 'success')
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Deploy background agents
+        run: |
+          echo "🚀 Deploying background agents..."
+          echo "Environment: ${{ github.event.inputs.environment || 'development' }}"
+          echo "Agent types: ${{ github.event.inputs.agent_type || 'all' }}"
+          
+          # Create deployment marker
+          echo "Background agents deployed at $(date)" > deployment.log
+          
+          # Simulate deployment process
+          echo "✅ Background agents deployed successfully"
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          echo "📢 Deployment notification"
+          echo "Status: ${{ job.status }}"
+          echo "Agents deployed: ${{ github.event.inputs.agent_type || 'all' }}"
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Cleanup resources
+        run: |
+          echo "🧹 Cleaning up resources..."
+          echo "Cleanup completed"

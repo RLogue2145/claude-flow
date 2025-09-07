@@ -1,0 +1,22 @@
+{
+  "github": {
+    "enabled": true,
+    "repository": "ruvnet/claude-code-flow",
+    "permissions": {
+      "actions": "write",
+      "contents": "read",
+      "metadata": "read",
+      "pull_requests": "write",
+      "issues": "write"
+    },
+    "webhook": {
+      "enabled": true,
+      "events": ["push", "pull_request", "issues", "workflow_run"]
+    }
+  },
+  "background_agents": {
+    "enabled": true,
+    "handshake_url": "https://api.cursor.sh/v1/agents/handshake",
+    "auth_method": "github_oauth"
+  }
+}

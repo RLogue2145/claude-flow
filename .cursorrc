@@ -1,0 +1,10 @@
+{
+  "github": {
+    "repository": "ruvnet/claude-code-flow",
+    "enabled": true
+  },
+  "background_agents": {
+    "enabled": true,
+    "local": true
+  }
+}

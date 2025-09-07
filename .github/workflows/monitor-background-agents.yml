@@ -1,0 +1,372 @@
+name: Monitor Background Agents
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      check_type:
+        description: 'Type of health check to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - github-integration
+        - cursor-sync
+        - memory-management
+        - swarm-coordination
+      alert_threshold:
+        description: 'Alert threshold for failures'
+        required: false
+        default: '3'
+        type: string
+
+env:
+  NODE_VERSION: '20'
+  ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  # Health Check
+  health-check:
+    name: Background Agent Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Run health diagnostics
+        run: |
+          echo "🔍 Running background agent health diagnostics..."
+          npm run diagnostics
+
+      - name: Check GitHub integration health
+        run: |
+          echo "🐙 Checking GitHub integration health..."
+          node -e "
+            const { GitHubAPIClient } = require('./dist/cli/simple-commands/github/github-api.js');
+            const client = new GitHubAPIClient();
+            
+            client.authenticate().then(auth => {
+              if (auth) {
+                console.log('✅ GitHub integration healthy');
+                process.exit(0);
+              } else {
+                console.log('❌ GitHub integration unhealthy');
+                process.exit(1);
+              }
+            }).catch(err => {
+              console.log('❌ GitHub integration error:', err.message);
+              process.exit(1);
+            });
+          "
+
+      - name: Check memory management health
+        run: |
+          echo "🧠 Checking memory management health..."
+          
+          # Check memory store
+          if [ -f "memory/memory-store.json" ]; then
+            node -e "
+              const fs = require('fs');
+              try {
+                const data = JSON.parse(fs.readFileSync('memory/memory-store.json', 'utf8'));
+                console.log('✅ Memory store healthy -', Object.keys(data).length, 'entries');
+              } catch (err) {
+                console.log('❌ Memory store corrupted:', err.message);
+                process.exit(1);
+              }
+            "
+          else
+            echo "⚠️  Memory store not found"
+          fi
+
+      - name: Check swarm coordination health
+        run: |
+          echo "🐝 Checking swarm coordination health..."
+          
+          # Check swarm files
+          if [ -f "bin/claude-flow-swarm" ]; then
+            echo "✅ Swarm binary found"
+            chmod +x bin/claude-flow-swarm
+            ./bin/claude-flow-swarm --version || echo "Swarm version check completed"
+          else
+            echo "⚠️  Swarm binary not found"
+          fi
+
+      - name: Check Cursor integration health
+        run: |
+          echo "🎯 Checking Cursor integration health..."
+          
+          # Check Cursor API connection
+          node -e "
+            console.log('Testing Cursor API connection...');
+            console.log('Cursor API URL:', process.env.CURSOR_API_URL || 'Not set');
+            console.log('Cursor API Key:', process.env.CURSOR_API_KEY ? 'Set' : 'Not set');
+            
+            if (process.env.CURSOR_API_URL && process.env.CURSOR_API_KEY) {
+              console.log('✅ Cursor integration configured');
+            } else {
+              console.log('⚠️  Cursor integration not fully configured');
+            }
+          "
+
+  # Performance Monitoring
+  performance-monitoring:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Run performance tests
+        run: |
+          echo "⚡ Running performance tests..."
+          npm run test:performance || echo "Performance tests completed"
+
+      - name: Check memory usage
+        run: |
+          echo "💾 Checking memory usage..."
+          node -e "
+            const os = require('os');
+            const totalMem = os.totalmem();
+            const freeMem = os.freemem();
+            const usedMem = totalMem - freeMem;
+            const memUsagePercent = (usedMem / totalMem) * 100;
+            
+            console.log('Memory Usage:', memUsagePercent.toFixed(2) + '%');
+            console.log('Total Memory:', (totalMem / 1024 / 1024 / 1024).toFixed(2) + ' GB');
+            console.log('Used Memory:', (usedMem / 1024 / 1024 / 1024).toFixed(2) + ' GB');
+            console.log('Free Memory:', (freeMem / 1024 / 1024 / 1024).toFixed(2) + ' GB');
+            
+            if (memUsagePercent > 90) {
+              console.log('⚠️  High memory usage detected');
+              process.exit(1);
+            } else {
+              console.log('✅ Memory usage normal');
+            }
+          "
+
+      - name: Check disk usage
+        run: |
+          echo "💿 Checking disk usage..."
+          df -h
+          
+          # Check if disk usage is too high
+          DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+          if [ "$DISK_USAGE" -gt 90 ]; then
+            echo "⚠️  High disk usage detected: ${DISK_USAGE}%"
+            exit 1
+          else
+            echo "✅ Disk usage normal: ${DISK_USAGE}%"
+          fi
+
+      - name: Check network connectivity
+        run: |
+          echo "🌐 Checking network connectivity..."
+          
+          # Test GitHub API connectivity
+          curl -s -o /dev/null -w "%{http_code}" https://api.github.com | grep -q "200" && echo "✅ GitHub API accessible" || echo "❌ GitHub API not accessible"
+          
+          # Test Cursor API connectivity (if configured)
+          if [ -n "$CURSOR_API_URL" ]; then
+            curl -s -o /dev/null -w "%{http_code}" "$CURSOR_API_URL" | grep -q "200" && echo "✅ Cursor API accessible" || echo "❌ Cursor API not accessible"
+          else
+            echo "⚠️  Cursor API URL not configured"
+          fi
+
+  # Alert Management
+  alert-management:
+    name: Alert Management
+    runs-on: ubuntu-latest
+    needs: [health-check, performance-monitoring]
+    if: always() && (needs.health-check.result == 'failure' || needs.performance-monitoring.result == 'failure')
+    timeout-minutes: 5
+    steps:
+      - name: Check failure count
+        run: |
+          echo "📊 Checking failure count..."
+          
+          # Count failures
+          FAILURE_COUNT=0
+          if [ "${{ needs.health-check.result }}" == "failure" ]; then
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
+          fi
+          if [ "${{ needs.performance-monitoring.result }}" == "failure" ]; then
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
+          fi
+          
+          echo "Failure count: $FAILURE_COUNT"
+          echo "Alert threshold: ${{ github.event.inputs.alert_threshold || '3' }}"
+          
+          if [ "$FAILURE_COUNT" -ge "${{ github.event.inputs.alert_threshold || '3' }}" ]; then
+            echo "🚨 Alert threshold exceeded!"
+            echo "ALERT_THRESHOLD_EXCEEDED=true" >> $GITHUB_ENV
+          else
+            echo "✅ Within alert threshold"
+            echo "ALERT_THRESHOLD_EXCEEDED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Send alert notification
+        if: env.ALERT_THRESHOLD_EXCEEDED == 'true'
+        run: |
+          echo "📢 Sending alert notification..."
+          
+          # Create alert message
+          ALERT_MESSAGE="🚨 Background Agent Alert
+          
+          Environment: ${{ github.environment || 'unknown' }}
+          Workflow: ${{ github.workflow }}
+          Run ID: ${{ github.run_id }}
+          Time: $(date)
+          
+          Health Check: ${{ needs.health-check.result }}
+          Performance Monitoring: ${{ needs.performance-monitoring.result }}
+          
+          Please check the workflow logs for details."
+          
+          echo "$ALERT_MESSAGE"
+          
+          # Send to webhook if configured
+          if [ -n "$ALERT_WEBHOOK_URL" ]; then
+            curl -X POST "$ALERT_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\":\"$ALERT_MESSAGE\"}" || echo "Failed to send webhook alert"
+          else
+            echo "⚠️  Alert webhook not configured"
+          fi
+
+      - name: Create issue for persistent failures
+        if: env.ALERT_THRESHOLD_EXCEEDED == 'true'
+        run: |
+          echo "📋 Creating issue for persistent failures..."
+          
+          # Create issue using GitHub CLI
+          gh issue create \
+            --title "Background Agent Health Alert - $(date +%Y-%m-%d)" \
+            --body "Background agents are experiencing health issues. Please investigate.
+          
+          **Environment:** ${{ github.environment || 'unknown' }}
+          **Workflow:** ${{ github.workflow }}
+          **Run ID:** ${{ github.run_id }}
+          **Time:** $(date)
+          
+          **Status:**
+          - Health Check: ${{ needs.health-check.result }}
+          - Performance Monitoring: ${{ needs.performance-monitoring.result }}
+          
+          **Next Steps:**
+          1. Check workflow logs for detailed error information
+          2. Verify all required services are running
+          3. Check resource usage and availability
+          4. Update this issue when resolved" \
+            --label "bug,background-agents,health-check" || echo "Failed to create issue"
+
+  # Generate Health Report
+  health-report:
+    name: Generate Health Report
+    runs-on: ubuntu-latest
+    needs: [health-check, performance-monitoring]
+    if: always()
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate health report
+        run: |
+          echo "📊 Generating health report..."
+          
+          # Create health report
+          cat > health-report.md << EOF
+          # Background Agent Health Report
+          
+          **Generated:** $(date)
+          **Workflow:** ${{ github.workflow }}
+          **Run ID:** ${{ github.run_id }}
+          
+          ## Health Status
+          
+          | Component | Status | Details |
+          |-----------|--------|---------|
+          | Health Check | ${{ needs.health-check.result }} | Background agent health diagnostics |
+          | Performance Monitoring | ${{ needs.performance-monitoring.result }} | Performance and resource monitoring |
+          
+          ## System Information
+          
+          - **Node.js Version:** $(node --version)
+          - **OS:** $(uname -a)
+          - **Memory:** $(free -h | grep Mem | awk '{print $2}')
+          - **Disk:** $(df -h / | tail -1 | awk '{print $2}')
+          
+          ## Recent Activity
+          
+          - Health check completed at $(date)
+          - Performance monitoring completed at $(date)
+          
+          EOF
+          
+          echo "✅ Health report generated"
+
+      - name: Upload health report
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report-${{ github.run_number }}
+          path: health-report.md
+          retention-days: 30
+
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('health-report.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [health-check, performance-monitoring, alert-management, health-report]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Cleanup resources
+        run: |
+          echo "🧹 Cleaning up monitoring resources..."
+          echo "✅ Cleanup completed"

@@ -1,0 +1,60 @@
+name: Cursor Background Agents
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'start'
+        type: choice
+        options:
+        - start
+        - stop
+        - status
+        - restart
+
+jobs:
+  background-agent:
+    name: Background Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Start Background Agent
+        if: ${{ github.event.inputs.action == 'start' }}
+        run: |
+          echo "🤖 Starting Cursor background agent..."
+          node dist/cli/simple-commands/cursor-background-agent.js start --daemon
+
+      - name: Stop Background Agent
+        if: ${{ github.event.inputs.action == 'stop' }}
+        run: |
+          echo "🛑 Stopping Cursor background agent..."
+          node dist/cli/simple-commands/cursor-background-agent.js stop
+
+      - name: Check Status
+        if: ${{ github.event.inputs.action == 'status' }}
+        run: |
+          echo "📊 Checking background agent status..."
+          node dist/cli/simple-commands/cursor-background-agent.js status
+
+      - name: Restart Background Agent
+        if: ${{ github.event.inputs.action == 'restart' }}
+        run: |
+          echo "🔄 Restarting Cursor background agent..."
+          node dist/cli/simple-commands/cursor-background-agent.js restart

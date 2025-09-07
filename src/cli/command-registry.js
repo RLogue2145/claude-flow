@@ -14,6 +14,8 @@ import { startCommand } from './simple-commands/start.js';
 import { swarmCommand } from './simple-commands/swarm.js';
 import { batchManagerCommand } from './simple-commands/batch-manager.js';
 import { githubCommand } from './simple-commands/github.js';
+import { cursorCommand } from './simple-commands/cursor.js';
+import { cursorBackgroundAgentCommand } from './simple-commands/cursor-background-agent.js';
 import { trainingAction } from './simple-commands/training.js';
 import { analysisAction } from './simple-commands/analysis.js';
 import { automationAction } from './simple-commands/automation.js';
@@ -244,6 +246,58 @@ Benefits:
       'swarm "Analyze data" --max-agents 3 --parallel',
       'swarm "Development task" --ui --monitor --background',
     ],
+  });
+
+  commandRegistry.set('cursor', {
+    handler: cursorCommand,
+    description: 'Cursor IDE integration and background agent management',
+    usage: 'cursor <mode> [options]',
+    examples: [
+      'cursor init --api-key <key>                    # Initialize Cursor integration',
+      'cursor sync --workspace <path>                 # Sync with Cursor workspace',
+      'cursor background --daemon                     # Start background agent',
+      'cursor status --verbose                        # Check integration status',
+      'cursor config --api-key <key>                  # Configure settings',
+      'cursor logs --tail                             # View background agent logs',
+    ],
+    details: `
+Cursor integration modes:
+  • init: Initialize Cursor integration and background agents
+  • sync: Sync with Cursor workspace and background agents
+  • background: Start background agent for Cursor integration
+  • status: Check Cursor integration and background agent status
+  • config: Configure Cursor integration settings
+  • logs: View background agent logs
+
+Environment variables:
+  CURSOR_API_URL: Cursor API base URL
+  CURSOR_API_KEY: Cursor API key for authentication
+    `,
+  });
+
+  commandRegistry.set('cursor-agent', {
+    handler: cursorBackgroundAgentCommand,
+    description: 'Manage Cursor background agents directly',
+    usage: 'cursor-agent <command> [options]',
+    examples: [
+      'cursor-agent start --daemon                    # Start background agent',
+      'cursor-agent stop                              # Stop background agent',
+      'cursor-agent restart                           # Restart background agent',
+      'cursor-agent status                            # Check agent status',
+    ],
+    details: `
+Cursor background agent commands:
+  • start: Start the background agent process
+  • stop: Stop the background agent process
+  • restart: Restart the background agent process
+  • status: Check background agent status and health
+
+Options:
+  --daemon: Run as background daemon
+  --port <port>: Background agent port (default: 3001)
+  --workspace <path>: Cursor workspace path
+  --log-level <level>: Log level (debug, info, warn, error)
+    `,
   });
 
   commandRegistry.set('hive-mind', {
