@@ -30,8 +30,9 @@ on:
 
 env:
   NODE_VERSION: '20'
+  
   CURSOR_API_URL: ${{ secrets.CURSOR_API_URL }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
 jobs:
   # Background Agent Health Check
